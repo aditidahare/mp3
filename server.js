@@ -1,53 +1,33 @@
-require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
+require('dotenv').config();
 const cors = require('cors');
 
-const userRoutes = require('./routes/users');
-const taskRoutes = require('./routes/tasks');
-const indexRoutes = require('./routes');
+const usersRoute = require('./routes/users');
+const tasksRoute = require('./routes/tasks');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// MongoDB Connection
-
-const safeUri = (process.env.MONGODB_URI || '').replace(/:\/\/.*:.*@/,'://<redacted>@');
-console.log('Connecting to MongoDB with URI:', safeUri);
-
-mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('Connected to MongoDB Atlas'))
-  .catch(err => {
-    console.error('MongoDB connection error:', err.message);
-    process.exit(1);
-  });
-
-  
-mongoose.connect(process.env.TOKEN, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-}).then(() => {
-  console.log('Connected to MongoDB Atlas');
-}).catch((err) => {
-  console.error('MongoDB connection error:', err);
-});
+// Avoid multiple mongoose connections on Render
+if (mongoose.connection.readyState === 0) {
+  const uri = process.env.MONGODB_URI;
+  console.log("Connecting to MongoDB...");
+  mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log("✅ Connected to MongoDB Atlas"))
+    .catch(err => {
+      console.error("❌ MongoDB connection error:", err.message);
+      process.exit(1);
+    });
+}
 
 // Routes
-indexRoutes(app, express.Router());
-app.use('/api/users', userRoutes);
-app.use('/api/tasks', taskRoutes);
+app.use('/api/users', usersRoute);
+app.use('/api/tasks', tasksRoute);
 
-// 404 fallback
-app.use((req, res) => {
-  res.status(404).json({ message: 'Not found' });
-});
+// Root test route
+app.get('/', (req, res) => res.send('API is running ✅'));
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`🚀 Server is running on port ${port}`));
