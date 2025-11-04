@@ -1,39 +1,53 @@
-// Get the packages we need
-var express = require('express'),
-    router = express.Router(),
-    mongoose = require('mongoose'),
-    bodyParser = require('body-parser');
-
-// Read .env file
 require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
 
-// Create our Express application
-var app = express();
+const userRoutes = require('./routes/users');
+const taskRoutes = require('./routes/tasks');
+const indexRoutes = require('./routes');
 
-// Use environment defined port or 3000
-var port = process.env.PORT || 3000;
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Connect to a MongoDB --> Uncomment this once you have a connection string!!
-//mongoose.connect(process.env.MONGODB_URI,  { useNewUrlParser: true });
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Allow CORS so that backend and frontend could be put on different servers
-var allowCrossDomain = function (req, res, next) {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Headers", "X-Requested-With, X-HTTP-Method-Override, Content-Type, Accept");
-    res.header("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS");
-    next();
-};
-app.use(allowCrossDomain);
+// MongoDB Connection
 
-// Use the body-parser package in our application
-app.use(bodyParser.urlencoded({
-    extended: true
-}));
-app.use(bodyParser.json());
+const safeUri = (process.env.MONGODB_URI || '').replace(/:\/\/.*:.*@/,'://<redacted>@');
+console.log('Connecting to MongoDB with URI:', safeUri);
 
-// Use routes as a module (see index.js)
-require('./routes')(app, router);
+mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('Connected to MongoDB Atlas'))
+  .catch(err => {
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
+  });
 
-// Start the server
-app.listen(port);
-console.log('Server running on port ' + port);
+  
+mongoose.connect(process.env.TOKEN, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => {
+  console.log('Connected to MongoDB Atlas');
+}).catch((err) => {
+  console.error('MongoDB connection error:', err);
+});
+
+// Routes
+indexRoutes(app, express.Router());
+app.use('/api/users', userRoutes);
+app.use('/api/tasks', taskRoutes);
+
+// 404 fallback
+app.use((req, res) => {
+  res.status(404).json({ message: 'Not found' });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
