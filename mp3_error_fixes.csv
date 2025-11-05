@@ -1,0 +1,4 @@
+timestamp,my_query,response
+11/4/2025 23:58,"hey chatgpt please help me fix this, I'm getting `EADDRINUSE: address already in use :3000`","This happens when port 3000 is already being used. Run `taskkill /F /IM node.exe` or restart terminal, then run `npm start` again."
+11/4/2025 23:58,"hey chatgpt please help me fix this, Powershell is not accepting `curl -X` commands","Use Git Bash instead of PowerShell because PowerShell treats curl as `Invoke-WebRequest`. Alternatively, use `curl.exe` explicitly."
+11/4/2025 23:58,hey chatgpt please help me fix this MongoDB connection error `multiple connections openUri()`,Remove duplicate `mongoose.connect()` calls and ensure only one connection is opened in server.js before defining routes.
