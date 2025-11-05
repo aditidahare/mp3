@@ -4,7 +4,7 @@ import sys
 import getopt
 import http.client
 import json
-from random import randint, choice
+from random import choice, randint
 from datetime import date
 from time import mktime
 
@@ -13,12 +13,32 @@ def usage():
     print('dbFill.py -u <baseurl> -p <port> -n <numUsers> -t <numTasks>')
 
 
+def make_conn(baseurl, port):
+    # HTTPS for hosted, HTTP for localhost
+    if baseurl != "localhost":
+        return http.client.HTTPSConnection(baseurl, timeout=30)
+    return http.client.HTTPConnection(baseurl, port, timeout=30)
+
+
+def send_request(method, url, body, baseurl, port, headers):
+    conn = make_conn(baseurl, port)
+    conn.request(method, url, body, headers)
+    resp = conn.getresponse()
+    status = resp.status
+    raw = resp.read()
+    conn.close()
+    try:
+        data = json.loads(raw or "{}")
+    except Exception:
+        data = {"message": f"Non-JSON response (status {status})", "raw": raw.decode("utf-8", "ignore")}
+    return status, data
+
+
 def main(argv):
-    # Defaults (match your local dev)
     baseurl = "localhost"
     port = 3000
-    userCount = 50
-    taskCount = 200
+    userCount = 20
+    taskCount = 100
 
     try:
         opts, _ = getopt.getopt(argv, "hu:p:n:t:", ["url=", "port=", "users=", "tasks="])
@@ -31,7 +51,7 @@ def main(argv):
             usage()
             sys.exit()
         elif opt in ("-u", "--url"):
-            baseurl = str(arg)
+            baseurl = arg.replace("https://", "").replace("http://", "").strip("/")
         elif opt in ("-p", "--port"):
             port = int(arg)
         elif opt in ("-n", "--users"):
@@ -39,77 +59,74 @@ def main(argv):
         elif opt in ("-t", "--tasks"):
             taskCount = int(arg)
 
-    # Names
-    firstNames = ["james","john","robert","michael","william","david","richard","charles","joseph","thomas","christopher","daniel","paul","mark","donald","george","kenneth","steven","edward","brian","ronald","anthony","kevin","jason","matthew","gary","timothy","jose","larry","jeffrey","frank","scott","eric","stephen","andrew","raymond","gregory","joshua","jerry","dennis","walter","patrick","peter","harold","douglas","henry","carl","arthur","ryan","roger","joe","juan","jack","albert","jonathan","justin","terry","gerald","keith","samuel","willie","ralph","lawrence","nicholas","roy","benjamin","bruce","brandon","adam","harry","fred","wayne","billy","steve","louis","jeremy","aaron","randy","howard","eugene","carlos","russell","bobby","victor","martin","ernest","phillip","todd","jesse","craig","alan","shawn","clarence","sean","philip","chris","johnny","earl","jimmy","antonio","danny","bryan","tony","luis","mike","stanley","leonard","nathan","dale","manuel","rodney","curtis","norman","allen","marvin","vincent","glenn","jeffery","travis","jeff","chad","jacob","lee","melvin","alfred","kyle","francis","bradley","jesus","herbert","frederick","ray","joel","edwin","don","eddie","ricky","troy","randall","barry","alexander","bernard","mario","leroy","francisco","marcus","micheal","theodore","clifford","miguel","oscar","jay","jim","tom","calvin","alex","jon","ronnie","bill","lloyd","tommy","leon","derek","warren","darrell","jerome","floyd","leo","alvin","tim","wesley","gordon","dean","greg","jorge","dustin","pedro","derrick","dan","lewis","zachary","corey","herman","maurice","vernon","roberto","clyde","glen","hector","shane","ricardo","sam","rick","lester","brent","ramon","charlie","tyler","gilbert","gene"]
-    lastNames  = ["smith","johnson","williams","jones","brown","davis","miller","wilson","moore","taylor","anderson","thomas","jackson","white","harris","martin","thompson","garcia","martinez","robinson","clark","rodriguez","lewis","lee","walker","hall","allen","young","hernandez","king","wright","lopez","hill","scott","green","adams","baker","gonzalez","nelson","carter","mitchell","perez","roberts","turner","phillips","campbell","parker","evans","edwards","collins","stewart","sanchez","morris","rogers","reed","cook","morgan","bell","murphy","bailey","rivera","cooper","richardson","cox","howard","ward","torres","peterson","gray","ramirez","james","watson","brooks","kelly","sanders","price","bennett","wood","barnes","ross","henderson","coleman","jenkins","perry","powell","long","patterson","hughes","flores","washington","butler","simmons","foster","gonzales","bryant","alexander","russell","griffin","diaz","hayes"]
-
-    # HTTP client
-    conn = http.client.HTTPConnection(baseurl, port)
     headers = {"Content-type": "application/json", "Accept": "application/json"}
 
-    userIDs, userNames, userEmails = [], [], []
+    first = ["james","john","robert","michael","william","david","richard","charles","joseph","thomas"]
+    last  = ["smith","johnson","williams","jones","brown","davis","miller","wilson","moore","taylor"]
 
-    # --- Create users ---
-    for _ in range(userCount):
-        x = randint(0, 99)
-        y = randint(0, 99)
-        body = {
-            "name": f"{firstNames[x]} {lastNames[y]}",
-            "email": f"{firstNames[x]}@{lastNames[y]}.com"
-        }
-        conn.request("POST", "/api/users", json.dumps(body), headers)
-        resp = conn.getresponse()
-        data = json.loads(resp.read() or "{}")
+    userIDs, userNames = [], []
 
-        if not data or "data" not in data or not data["data"]:
-            raise RuntimeError(f"User POST failed: {data}")
+    print("👤 Creating users...")
+    i = 0
+    attempts = 0
+    # keep going until we actually have `userCount` saved
+    while i < userCount:
+        attempts += 1
+        fname = choice(first)
+        lname = choice(last)
+        # unique email: add counter + random
+        email = f"{fname}.{lname}.{i}.{randint(10000,99999)}@example.com"
+        body = json.dumps({"name": f"{fname} {lname}", "email": email})
 
-        user = data["data"]
-        userIDs.append(str(user["_id"]))
-        userNames.append(str(user["name"]))
-        userEmails.append(str(user["email"]))
+        status, resp = send_request("POST", "/api/users", body, baseurl, port, headers)
+        data = resp.get("data")
 
-    # --- Read task names ---
+        if status in (200, 201) and isinstance(data, dict) and data.get("_id"):
+            userIDs.append(str(data["_id"]))
+            userNames.append(str(data["name"]))
+            i += 1
+        else:
+            # Show what happened and retry with a fresh email
+            msg = resp.get("message", f"HTTP {status}")
+            # print once in a while to not spam
+            print(f"  retry user {i}: {msg}")
+
+        # very defensive break to avoid infinite loop (shouldn't hit)
+        if attempts > userCount * 20:
+            raise RuntimeError("Too many retries creating users; check API logs.")
+
+    print(f"✅ Users created: {len(userIDs)}")
+
+    # read task names
     with open("tasks.txt", "r", encoding="utf-8") as f:
-        taskNames = f.read().splitlines()
+        taskNames = [line.strip() for line in f if line.strip()]
 
-    # --- Create tasks ---
+    print("📝 Creating tasks...")
+    created = 0
     for _ in range(taskCount):
         assigned = (randint(0, 10) > 4)
-        assignedUserIndex = randint(0, len(userIDs) - 1) if assigned else -1
+        idx = randint(0, len(userIDs) - 1) if assigned else None
 
-        assignedUserID    = userIDs[assignedUserIndex]  if assigned else ""
-        assignedUserName  = userNames[assignedUserIndex] if assigned else "unassigned"
-        # NOTE: server derives assignedUserName from assignedUser id; we still send both.
-
-        completed = (randint(0, 10) > 5)
-
-        # Integer ms since epoch (NOT a float / string with decimals)
+        # deadline in ms since epoch (int)
         deadline = int((mktime(date.today().timetuple()) + randint(86400, 864000)) * 1000)
 
-        description = ("It is a long established fact that a reader will be distracted by the readable "
-                       "content of a page when looking at its layout. The point of using Lorem Ipsum is "
-                       "that it has a more-or-less normal distribution of letters, as opposed to using "
-                       "'Content here, content here', making it look like readable English.")
-
-        task_body = {
+        task = {
             "name": choice(taskNames),
             "deadline": deadline,
-            "completed": completed,
-            "assignedUser": assignedUserID,
-            "assignedUserName": assignedUserName,
-            "description": description
+            "completed": bool(randint(0, 1)),
+            "assignedUser": userIDs[idx] if assigned else "",
+            "assignedUserName": userNames[idx] if assigned else "unassigned",
+            "description": "Autogenerated task."
         }
 
-        conn.request("POST", "/api/tasks", json.dumps(task_body), headers)
-        resp = conn.getresponse()
-        data = json.loads(resp.read() or "{}")
+        status, resp = send_request("POST", "/api/tasks", json.dumps(task), baseurl, port, headers)
+        if status in (200, 201) and isinstance(resp.get("data"), dict):
+            created += 1
+        else:
+            # soft-fail task creates; continue
+            pass
 
-        if not data or "data" not in data or not data["data"]:
-            raise RuntimeError(f"Task POST failed: {data}")
-
-    conn.close()
-    print(f"{userCount} users and {taskCount} tasks added at {baseurl}:{port}")
+    print(f"🎉 DONE → {len(userIDs)} users + {created} tasks added to {baseurl}")
 
 
 if __name__ == "__main__":

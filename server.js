@@ -2,7 +2,6 @@ const express = require('express');
 const mongoose = require('mongoose');
 require('dotenv').config();
 const cors = require('cors');
-app.use(express.urlencoded({ extended: true }));
 
 const usersRoute = require('./routes/users');
 const tasksRoute = require('./routes/tasks');
@@ -10,6 +9,8 @@ const tasksRoute = require('./routes/tasks');
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 
 // Avoid multiple mongoose connections on Render
 if (mongoose.connection.readyState === 0) {
